@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>汉字防守战 - Pinyin Defender</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 90vh;
+            background-color: #1e293b;
+            border: 4px solid #38bdf8;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+            overflow: hidden;
+        }
+
+        #ui-bar {
+            position: absolute;
+            top: 0;
+            width: 100%;
+            padding: 15px 20px;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: space-between;
+            font-size: 24px;
+            background-color: rgba(15, 23, 42, 0.8);
+            z-index: 10;
+        }
+
+        #hearts { color: #ef4444; }
+        #score { color: #34d399; font-weight: bold; }
+
+        #typing-area {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #0f172a;
+            border: 2px solid #38bdf8;
+            padding: 10px 30px;
+            border-radius: 8px;
+            font-size: 28px;
+            color: #f8fafc;
+            min-width: 200px;
+            text-align: center;
+            min-height: 40px;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+            z-index: 10;
+        }
+
+        .falling-word {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: top 0.02s linear; 
+        }
+
+        .chinese-char {
+            font-size: 40px;
+            font-weight: bold;
+            color: #f8fafc;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            transition: all 0.2s;
+        }
+
+        .pinyin-display {
+            font-size: 24px;
+            color: #38bdf8;
+            min-height: 30px;
+            margin-top: 5px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        .locked .chinese-char {
+            color: #facc15;
+            text-shadow: 0 0 15px rgba(250, 204, 21, 0.8);
+        }
+
+        .locked .pinyin-display {
+            color: #facc15;
+        }
+
+        .explode {
+            transform: scale(1.6);
+            opacity: 0;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease-out;
+            pointer-events: none;
+        }
+        .explode .chinese-char, .explode .pinyin-display {
+            color: #34d399 !important;
+            text-shadow: 0 0 20px #34d399 !important;
+        }
+
+        .bullet {
+            position: absolute;
+            width: 4px;
+            height: 25px;
+            background-color: #34d399;
+            box-shadow: 0 0 10px #34d399;
+            border-radius: 2px;
+            pointer-events: none;
+            transition: top 0.15s linear, left 0.15s linear;
+            z-index: 5;
+        }
+
+        .error-msg {
+            position: absolute;
+            color: #ef4444;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s, top 0.5s;
+        }
+
+        #start-screen, #game-over {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        #game-over { display: none; }
+
+        #start-screen h1 { color: #38bdf8; font-size: 60px; margin-bottom: 10px; }
+        #start-screen p { font-size: 24px; margin-bottom: 30px; color: #e2e8f0; }
+
+        #game-over h1 { color: #ef4444; font-size: 60px; margin-bottom: 10px; }
+        #game-over p { font-size: 30px; margin-bottom: 30px; }
+        
+        button {
+            padding: 15px 30px; font-size: 24px;
+            background-color: #38bdf8; color: #0f172a;
+            border: none; border-radius: 8px; cursor: pointer; font-weight: bold;
+        }
+        button:hover { background-color: #7dd3fc; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-bar">
+            <div id="score">Score: 0</div>
+            <div id="hearts">❤️❤️❤️❤️❤️</div>
+        </div>
+        
+        <div id="word-area"></div>
+        <div id="typing-area"></div>
+
+        <div id="start-screen">
+            <h1>Pinyin Defender</h1>
+            <p>Type the pinyin to defend the base!</p>
+            <button onclick="initGame()">Start Game</button>
+        </div>
+
+        <div id="game-over">
+            <h1>Game Over</h1>
+            <p>Your Score: <span id="final-score">0</span></p>
+            <button onclick="startGame()">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // 两组词库：新词与复习词
+        const newVocabData = [
+            { word: "毛驴", keys: "maolv", display: ["m", "ma", "máo", "máo l", "máo lǘ"] },
+            { word: "袋子", keys: "daizi", display: ["d", "da", "dài", "dài z", "dài zi"] },
+            { word: "口袋", keys: "koudai", display: ["k", "ko", "kǒu", "kǒu d", "kǒu da", "kǒu dài"] },
+            { word: "打猎", keys: "dalie", display: ["d", "dǎ", "dǎ l", "dǎ li", "dǎ liè"] },
+            { word: "猎狗", keys: "liegou", display: ["l", "li", "liè", "liè g", "liè go", "liè gǒu"] },
+            { word: "躲起来", keys: "duoqilai", display: ["d", "du", "duǒ", "duǒ q", "duǒ qǐ", "duǒ qǐ l", "duǒ qǐ la", "duǒ qǐ lái"] },
+            { word: "可怜", keys: "kelian", display: ["k", "kě", "kě l", "kě li", "kě lia", "kě lián"] },
+            { word: "扎头发", keys: "zhatoufa", display: ["z", "zh", "zhā", "zhā t", "zhā to", "zhā tóu", "zhā tóu f", "zhā tóu fà"] },
+            { word: "逃跑", keys: "taopao", display: ["t", "ta", "táo", "táo p", "táo pa", "táo pǎo"] },
+            { word: "后退", keys: "houtui", display: ["h", "ho", "hòu", "hòu t", "hòu tu", "hòu tuì"] },
+            { word: "退钱", keys: "tuiqian", display: ["t", "tu", "tuì", "tuì q", "tuì qi", "tuì qia", "tuì qián"] },
+            { word: "良心", keys: "liangxin", display: ["l", "li", "lia", "lian", "liáng", "liáng x", "liáng xi", "liáng xīn"] },
+            { word: "压力", keys: "yali", display: ["y", "yā", "yā l", "yā lì"] },
+            { word: "危险", keys: "weixian", display: ["w", "we", "wēi", "wēi x", "wēi xi", "wēi xia", "wēi xiǎn"] },
+            { word: "保险", keys: "baoxian", display: ["b", "ba", "bǎo", "bǎo x", "bǎo xi", "bǎo xia", "bǎo xiǎn"] }
+        ];
+
+        const reviewVocabData = [
+            { word: "度假", keys: "dujia", display: ["d", "dù", "dù j", "dù ji", "dù jià"] },
+            { word: "一辆车", keys: "yiliangche", display: ["y", "yí", "yí l", "yí li", "yí lia", "yí liàn", "yí liàng", "yí liàng c", "yí liàng ch", "yí liàng chē"] },
+            { word: "托运", keys: "tuoyun", display: ["t", "tu", "tuō", "tuō y", "tuō yu", "tuō yùn"] },
+            { word: "免税", keys: "mianshui", display: ["m", "mi", "mia", "miǎn", "miǎn s", "miǎn sh", "miǎn shu", "miǎn shuì"] },
+            { word: "复杂", keys: "fuza", display: ["f", "fù", "fù z", "fù zá"] },
+            { word: "化妆", keys: "huazhuang", display: ["h", "hu", "huà", "huà z", "huà zh", "huà zhu", "huà zhua", "huà zhuan", "huà zhuāng"] },
+            { word: "表示", keys: "biaoshi", display: ["b", "bi", "bia", "biǎo", "biǎo s", "biǎo sh", "biǎo shì"] },
+            { word: "将要", keys: "jiangyao", display: ["j", "ji", "jia", "jian", "jiāng", "jiāng y", "jiāng ya", "jiāng yào"] },
+            { word: "距离", keys: "juli", display: ["j", "jù", "jù l", "jù lí"] },
+            { word: "乘客", keys: "chengke", display: ["c", "ch", "che", "chen", "chéng", "chéng k", "chéng kè"] },
+            { word: "整齐", keys: "zhengqi", display: ["z", "zh", "zhe", "zhen", "zhěng", "zhěng q", "zhěng qí"] },
+            { word: "国际", keys: "guoji", display: ["g", "gu", "guó", "guó j", "guó jì"] },
+            { word: "到达", keys: "daoda", display: ["d", "da", "dào", "dào d", "dào dá"] },
+            { word: "会议", keys: "huiyi", display: ["h", "hu", "huì", "huì y", "huì yì"] },
+            { word: "零点", keys: "lingdian", display: ["l", "li", "lin", "líng", "líng d", "líng di", "líng dia", "líng diǎn"] },
+            { word: "政府", keys: "zhengfu", display: ["z", "zh", "zhe", "zhen", "zhèng", "zhèng f", "zhèng fǔ"] },
+            { word: "权利", keys: "quanli", display: ["q", "qu", "qua", "quán", "quán l", "quán lì"] },
+            { word: "指着", keys: "zhizhe", display: ["z", "zh", "zhǐ", "zhǐ z", "zhǐ zh", "zhǐ zhe"] },
+            { word: "表扬", keys: "biaoyang", display: ["b", "bi", "bia", "biǎo", "biǎo y", "biǎo ya", "biǎo yan", "biǎo yáng"] },
+            { word: "迷人", keys: "miren", display: ["m", "mí", "mí r", "mí re", "mí rén"] },
+            { word: "电视", keys: "dianshi", display: ["d", "di", "dia", "diàn", "diàn s", "diàn sh", "diàn shì"] },
+            { word: "地标", keys: "dibiao", display: ["d", "dì", "dì b", "dì bi", "dì bia", "dì biāo"] },
+            { word: "标志", keys: "biaozhi", display: ["b", "bi", "bia", "biāo", "biāo z", "biāo zh", "biāo zhì"] },
+            { word: "目标", keys: "mubiao", display: ["m", "mù", "mù b", "mù bi", "mù bia", "mù biāo"] },
+            { word: "租房", keys: "zufang", display: ["z", "zū", "zū f", "zū fa", "zū fan", "zū fáng"] },
+            { word: "尤其", keys: "youqi", display: ["y", "yo", "yóu", "yóu q", "yóu qí"] },
+            { word: "世纪", keys: "shiji", display: ["s", "sh", "shì", "shì j", "shì jì"] },
+            { word: "年纪", keys: "nianji", display: ["n", "ni", "nia", "nián", "nián j", "nián jì"] },
+            { word: "游泳池", keys: "youyongchi", display: ["y", "yo", "yóu", "yóu y", "yóu yo", "yóu yon", "yóu yǒng", "yóu yǒng c", "yóu yǒng ch", "yóu yǒng chí"] },
+            { word: "无奈", keys: "wunai", display: ["w", "wú", "wú n", "wú na", "wú nài"] },
+            { word: "花瓶", keys: "huaping", display: ["h", "hu", "huā", "huā p", "huā pi", "huā pin", "huā píng"] },
+            { word: "扔掉", keys: "rengdiao", display: ["r", "re", "ren", "rēng", "rēng d", "rēng di", "rēng dia", "rēng diào"] },
+            { word: "上升", keys: "shangsheng", display: ["s", "sh", "sha", "shan", "shàng", "shàng s", "shàng sh", "shàng she", "shàng shen", "shàng shēng"] },
+            { word: "不停", keys: "buting", display: ["b", "bù", "bù t", "bù ti", "bù tin", "bù tíng"] },
+            { word: "大半", keys: "daban", display: ["d", "dà", "dà b", "dà ba", "dà bàn"] },
+            { word: "痛快", keys: "tongkuai", display: ["t", "to", "ton", "tòng", "tòng k", "tòng ku", "tòng kua", "tòng kuài"] }
+        ];
+
+        let score = 0;
+        let hearts = 5; 
+        let activeWords = [];
+        let gameInterval;
+        let spawnInterval;
+        let isGameOver = false;
+
+        let lockedWordObj = null; 
+        let currentTypedIndex = 0;
+
+        const maxWordsOnScreen = 3; 
+        const fallSpeed = 0.5; 
+
+        let unplayedNew = [];
+        let unplayedReview = [];
+        let errorQueue = []; 
+
+        // ====== 智能语音队列系统 ======
+        let chineseVoice = null;
+        let fallbackAudio = null;
+        let audioQueue = [];
+        let isSpeaking = false;
+        let currentUtterance = null;
+
+        function loadVoices() {
+            if (!('speechSynthesis' in window)) return;
+            const voices = window.speechSynthesis.getVoices();
+            if (!voices || voices.length === 0) return;
+
+            chineseVoice = voices.find(v => 
+                v.lang === 'zh-CN' || 
+                v.lang === 'zh_CN' || 
+                v.lang.toLowerCase() === 'cmn-hans-cn' ||
+                v.lang.toLowerCase() === 'cmn-cn'
+            );
+
+            if (!chineseVoice) {
+                chineseVoice = voices.find(v => 
+                    v.name.includes('Chinese') || 
+                    v.name.includes('Mandarin') || 
+                    v.name.includes('普通话') || 
+                    v.name.includes('国语')
+                );
+            }
+
+            if (!chineseVoice) {
+                chineseVoice = voices.find(v => 
+                    v.lang.toLowerCase().startsWith('zh') || 
+                    v.lang.toLowerCase().startsWith('cmn')
+                );
+            }
+        }
+
+        if ('speechSynthesis' in window) {
+            loadVoices();
+            window.speechSynthesis.onvoiceschanged = loadVoices;
+        }
+
+        function speakWord(text, type = 'hint') {
+            if (type === 'hint') {
+                audioQueue.unshift(text);
+            } else {
+                audioQueue.push(text);
+            }
+            processAudioQueue();
+        }
+
+        function processAudioQueue() {
+            if (isSpeaking || audioQueue.length === 0) return;
+            
+            isSpeaking = true;
+            const text = audioQueue.shift();
+
+            if (!chineseVoice) loadVoices();
+
+            if (chineseVoice && 'speechSynthesis' in window) {
+                currentUtterance = new SpeechSynthesisUtterance(text);
+                currentUtterance.voice = chineseVoice;
+                currentUtterance.lang = chineseVoice.lang;
+                currentUtterance.rate = 0.85; 
+                
+                currentUtterance.onend = () => {
+                    isSpeaking = false;
+                    processAudioQueue();
+                };
+                currentUtterance.onerror = () => {
+                    isSpeaking = false;
+                    processAudioQueue();
+                };
+                window.speechSynthesis.speak(currentUtterance);
+            } else {
+                try {
+                    fallbackAudio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&le=zh`);
+                    fallbackAudio.onended = () => {
+                        isSpeaking = false;
+                        processAudioQueue();
+                    };
+                    fallbackAudio.onerror = () => {
+                        isSpeaking = false;
+                        processAudioQueue();
+                    };
+                    fallbackAudio.play().catch(() => {
+                        isSpeaking = false;
+                        processAudioQueue();
+                    });
+                } catch (e) {
+                    console.log("Audio play error", e);
+                    isSpeaking = false;
+                    processAudioQueue();
+                }
+            }
+        }
+
+        function shuffleArray(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex !== 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        function initGame() {
+            document.getElementById('start-screen').style.display = 'none';
+            if ('speechSynthesis' in window) {
+                loadVoices();
+                let silentUtterance = new SpeechSynthesisUtterance('');
+                window.speechSynthesis.speak(silentUtterance);
+            }
+            startGame();
+        }
+
+        function startGame() {
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('word-area').innerHTML = '';
+            score = 0;
+            hearts = 5;
+            activeWords = [];
+            isGameOver = false;
+
+            audioQueue = [];
+            isSpeaking = false;
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            if (fallbackAudio) fallbackAudio.pause();
+            
+            unplayedNew = shuffleArray([...newVocabData]);
+            unplayedReview = shuffleArray([...reviewVocabData]);
+            errorQueue = []; 
+            
+            updateUI();
+            clearTypingBox();
+
+            spawnWord(); 
+            spawnInterval = setInterval(spawnWord, 4500); 
+            gameInterval = setInterval(updateGameLoop, 20); 
+        }
+
+        function clearTypingBox() {
+            if (lockedWordObj && lockedWordObj.element && !lockedWordObj.element.classList.contains('explode')) {
+                lockedWordObj.element.classList.remove('locked');
+            }
+            lockedWordObj = null;
+            currentTypedIndex = 0;
+            document.getElementById('typing-area').innerText = "";
+        }
+
+        function getNextWordData() {
+            if (unplayedNew.length > 0 || unplayedReview.length > 0) {
+                let drawNew = false;
+                
+                if (unplayedNew.length === 0) {
+                    drawNew = false; 
+                } else if (unplayedReview.length === 0) {
+                    drawNew = true;  
+                } else {
+                    drawNew = Math.random() < (2.0 / 3.0);
+                }
+
+                return drawNew ? unplayedNew.pop() : unplayedReview.pop();
+            } 
+            else if (errorQueue.length > 0) {
+                return errorQueue.shift(); 
+            } 
+            else {
+                unplayedNew = shuffleArray([...newVocabData]);
+                unplayedReview = shuffleArray([...reviewVocabData]);
+                return getNextWordData();
+            }
+        }
+
+        function spawnWord() {
+            if (activeWords.length >= maxWordsOnScreen) return;
+
+            const wordData = getNextWordData();
+            
+            const wordEl = document.createElement('div');
+            wordEl.className = 'falling-word';
+            wordEl.style.left = Math.floor(Math.random() * 600) + 50 + 'px'; 
+            wordEl.style.top = '-50px';
+
+            wordEl.innerHTML = `
+                <div class="chinese-char">${wordData.word}</div>
+                <div class="pinyin-display"></div>
+            `;
+
+            document.getElementById('word-area').appendChild(wordEl);
+
+            setTimeout(() => {
+                if (document.getElementById('word-area').contains(wordEl) && !isGameOver) {
+                    speakWord(wordData.word, 'hint');
+                }
+            }, 2000);
+
+            activeWords.push({
+                element: wordEl,
+                data: wordData,
+                yPos: -50,
+                hasError: false 
+            });
+        }
+
+        function updateGameLoop() {
+            const containerHeight = document.getElementById('game-container').clientHeight;
+
+            for (let i = activeWords.length - 1; i >= 0; i--) {
+                let wordObj = activeWords[i];
+                wordObj.yPos += fallSpeed;
+                wordObj.element.style.top = wordObj.yPos + 'px';
+
+                if (wordObj.yPos > containerHeight - 60) {
+                    loseHeart();
+                    
+                    if (hearts > 0) {
+                        errorQueue.push(wordObj.data);
+                    }
+
+                    if (lockedWordObj === wordObj) {
+                        clearTypingBox(); 
+                    }
+
+                    wordObj.element.remove();
+                    activeWords.splice(i, 1);
+                }
+            }
+        }
+
+        function loseHeart() {
+            hearts--;
+            updateUI();
+            if (hearts <= 0) gameOver();
+        }
+
+        function updateUI() {
+            document.getElementById('score').innerText = `Score: ${score}`;
+            document.getElementById('hearts').innerText = '❤️'.repeat(hearts);
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            clearInterval(gameInterval);
+            clearInterval(spawnInterval);
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('game-over').style.display = 'flex';
+        }
+
+        function showErrorMsg(element) {
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'error-msg';
+            errorMsg.innerText = 'No Target Found!';
+            
+            const rect = element.getBoundingClientRect();
+            const containerRect = document.getElementById('game-container').getBoundingClientRect();
+            
+            errorMsg.style.left = (rect.left - containerRect.left + 20) + 'px';
+            errorMsg.style.top = (rect.top - containerRect.top + 20) + 'px';
+            
+            document.getElementById('word-area').appendChild(errorMsg);
+            
+            setTimeout(() => {
+                errorMsg.style.opacity = '1';
+                errorMsg.style.top = (rect.top - containerRect.top - 20) + 'px';
+            }, 10);
+
+            setTimeout(() => {
+                errorMsg.style.opacity = '0';
+                setTimeout(() => errorMsg.remove(), 200);
+            }, 600);
+        }
+
+        function shootBullet(targetObj) {
+            const container = document.getElementById('game-container');
+            const typingArea = document.getElementById('typing-area');
+            const containerRect = container.getBoundingClientRect();
+            const typingRect = typingArea.getBoundingClientRect();
+            const targetRect = targetObj.element.getBoundingClientRect();
+
+            const bullet = document.createElement('div');
+            bullet.className = 'bullet';
+
+            const startX = typingRect.left - containerRect.left + typingRect.width / 2 - 2;
+            const startY = typingRect.top - containerRect.top;
+
+            const endX = targetRect.left - containerRect.left + targetRect.width / 2 - 2;
+            const endY = targetRect.top - containerRect.top + targetRect.height - 10;
+
+            bullet.style.left = startX + 'px';
+            bullet.style.top = startY + 'px';
+            container.appendChild(bullet);
+
+            setTimeout(() => {
+                bullet.style.left = endX + 'px';
+                bullet.style.top = endY + 'px';
+            }, 10);
+
+            setTimeout(() => {
+                bullet.remove();
+            }, 150);
+        }
+
+        window.addEventListener('keydown', function(e) {
+            if (isGameOver) return;
+            const key = e.key.toLowerCase();
+            if (!/^[a-z]$/.test(key)) return;
+
+            if (!lockedWordObj) {
+                let possibleTargets = activeWords.filter(w => w.data.keys[0] === key);
+                
+                if (possibleTargets.length > 0) {
+                    lockedWordObj = possibleTargets.reduce((prev, current) => (prev.yPos > current.yPos) ? prev : current);
+                    lockedWordObj.element.classList.add('locked');
+                    currentTypedIndex = 1;
+                    updateTargetDisplay();
+                    shootBullet(lockedWordObj);
+                } else {
+                    showErrorMsg(document.getElementById('game-container'));
+                }
+            } else {
+                const targetKey = lockedWordObj.data.keys[currentTypedIndex];
+                
+                if (key === targetKey) {
+                    currentTypedIndex++;
+                    updateTargetDisplay();
+                    shootBullet(lockedWordObj); 
+
+                    if (currentTypedIndex === lockedWordObj.data.keys.length) {
+                        score += 10;
+                        updateUI();
+                        
+                        const completedWord = lockedWordObj;
+                        activeWords = activeWords.filter(w => w !== completedWord);
+                        
+                        if (completedWord.hasError) {
+                            errorQueue.push(completedWord.data);
+                        }
+
+                        completedWord.element.classList.add('explode');
+                        speakWord(completedWord.data.word, 'success');
+
+                        setTimeout(() => {
+                            completedWord.element.remove();
+                        }, 400);
+
+                        clearTypingBox(); 
+                    }
+                } else {
+                    showErrorMsg(lockedWordObj.element);
+                    lockedWordObj.hasError = true; 
+                }
+            }
+        });
+
+        function updateTargetDisplay() {
+            if (!lockedWordObj) return;
+            const displayString = lockedWordObj.data.display[currentTypedIndex - 1];
+            
+            const pinyinDiv = lockedWordObj.element.querySelector('.pinyin-display');
+            pinyinDiv.innerText = displayString;
+            document.getElementById('typing-area').innerText = displayString;
+        }
+
+    </script>
+</body>
+</html>
